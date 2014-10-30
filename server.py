@@ -127,8 +127,12 @@ def sharer_client_connected(reader, writer):
                 return
             readbuffer = packet[3]
             connectionid = packet[0]
-            yield from downloaders[connectionid].put(packet[2])
 
+            if packet[1] == protocol.PACKET:
+                yield from downloaders[connectionid].put(packet[2])
+            elif packet[1] == protocol.DISCONNECTED:
+                print("downloader disconnected")
+                #downloaders[connectionid].close()
     finally:
         del sharers[sharerid]
 

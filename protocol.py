@@ -46,6 +46,12 @@ def decode(data):
 
 @asyncio.coroutine
 def read_next_packet(reader, readbuffer):
+    try:
+        decoded = decode(readbuffer)
+        return decoded
+    except NotEnoughDataException:
+        pass
+
     while True:
         try:
             data = yield from reader.read(102)

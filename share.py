@@ -52,6 +52,7 @@ def handle_connection(connectionid, remote_writer):
                     remote_writer.write(protocol.encode(connectionid, protocol.PACKET, data))
                 else:
                     local_read = None
+                    remote_writer.write(protocol.encode(connectionid, protocol.DISCONNECTED))
                     print("all done!")
 
             elif t == remote_read:
