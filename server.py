@@ -132,7 +132,7 @@ def sharer_client_connected(reader, writer):
                 yield from downloaders[connectionid].put(packet[2])
             elif packet[1] == protocol.DISCONNECTED:
                 print("downloader disconnected")
-                #downloaders[connectionid].close()
+                yield from downloaders[connectionid].put(None)
     finally:
         del sharers[sharerid]
 
