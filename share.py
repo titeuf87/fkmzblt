@@ -2,6 +2,7 @@ import asyncio
 import ssl
 import aiohttp
 import aiohttp.server
+import argparse
 
 import protocol
 
@@ -78,13 +79,13 @@ def handle_connection(connectionid, remote_writer):
 
 
 @asyncio.coroutine
-def run_local_server():
+def run_local_server(file_to_share):
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
     sslcontext.load_cert_chain(certfile="server.crt", keyfile="server.key")
 
     #yield from asyncio.start_server(handle_downloader_connected, "127.0.0.1", 6666, ssl=sslcontext)
     loop = asyncio.get_event_loop()
-    yield from loop.create_server(HttpRequestHandler, "127.0.0.1", 6666, ssl=sslcontext)
+    yield from loop.create_server(lambda: HttpRequestHandler(file_to_share), "127.0.0.1", 6666, ssl=sslcontext)
 
 @asyncio.coroutine
 def handle_downloader_connected(reader, writer):
@@ -96,6 +97,10 @@ def handle_downloader_connected(reader, writer):
     print(data)
 
 class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
+
+    def __init__(self, file_to_share, **kwargs):
+        super().__init__(**kwargs)
+        self.file_to_share = file_to_share
 
     @asyncio.coroutine
     def handle_request(self, message, payload):
@@ -115,7 +120,7 @@ class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
         response.add_header('Content-type', 'image/png')
         response.send_headers()
 
-        with open("Photo0133.jpg", "rb") as fp:
+        with open(self.file_to_share, "rb") as fp:
             chunk = fp.read(8196)
             while chunk:
                 response.write(chunk)
@@ -128,8 +133,13 @@ class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
 #            self.keep_alive()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("filename", help="path to the file you wish to share")
+
+    args = parser.parse_args()
+
     asyncio.async(connect_to_server())
-    asyncio.async(run_local_server())
+    asyncio.async(run_local_server(args.filename))
 
     loop = asyncio.get_event_loop()
     loop.run_forever()
