@@ -4,9 +4,10 @@ import uuid
 import asyncio
 import ssl
 
-CONNECTED = 0xffffffff
-DISCONNECTED = 0xfffffffe
-PACKET = 0x00000000
+CONNECTED = b"\x01"
+DISCONNECTED = b"\x02"
+PACKET = b"\x03"
+DATA = b"\x04"
 
 class NotEnoughDataException(Exception):
     pass
@@ -20,29 +21,31 @@ def get_unique_id():
 def encode(connectionid, packettype, data=None):
     msg = connectionid.encode()
 
-    if packettype == PACKET:
-        msg += struct.pack("<I", len(data)) + data
+    if packettype in (PACKET, DATA):
+        msg += packettype + struct.pack("<I", len(data)) + data
     else:
-        msg += struct.pack("<I", packettype)
-
+        msg += packettype
     return msg
 
 def decode(data):
-    if len(data) < 26 + 4:
+    if len(data) < 26 + 1:
         raise NotEnoughDataException()
 
-    connectionid = data[:26].decode()
-    packettype = struct.unpack("<I", data[26:26+4])[0]
+    connectionid = data[:26]
+    packettype = data[26:26+1]
     if packettype in (CONNECTED, DISCONNECTED):
-        remaining = data[26+4:]
-        return (connectionid, packettype, None, remaining)
+        remaining = data[26+1:]
+        return (connectionid.decode(), packettype, None, remaining)
     else:
-        if len(data) < 26 + 4 + packettype:
+        if len(data) < 26 + 1 + 4:
+            raise NotEnoughDataException()
+        packetsize = struct.unpack("<I", data[26+1:26+1+4])[0]
+        if len(data) < 26 + 1 + 4 + packetsize:
             raise NotEnoughDataException()
 
-        packet = data[26+4:26+4+packettype]
-        remaining = data[26+4+packettype:]
-        return (connectionid, PACKET, packet, remaining)
+        packet = data[26+1+4:26+1+4+packetsize]
+        remaining = data[26+1+4+packetsize:]
+        return (connectionid.decode(), packettype, packet, remaining)
 
 @asyncio.coroutine
 def read_next_packet(reader, readbuffer):
@@ -72,9 +75,24 @@ def read_next_packet(reader, readbuffer):
 
 if __name__ == "__main__":
     a = encode(get_unique_id(), CONNECTED) + b"def"
+    print(a)
+    b = decode(a)
+    print(b)
+    print()
+
+    a = encode(get_unique_id(), PACKET, b"abc") + b"def"
+    print(a)
+    b = decode(a)
+    print(b)
+    print()
+
+    a = encode(get_unique_id(), DATA, b"abc") + b"def"
+    print(a)
     b = decode(a)
     print(b)
 
-    a = encode(get_unique_id(), PACKET, b"abc") + b"def"
-    b = decode(a)
+    a = encode(get_unique_id(), DATA, b"abc")
+    print(a)
+    print(a[:-1])
+    b = decode(a[:-1])
     print(b)
