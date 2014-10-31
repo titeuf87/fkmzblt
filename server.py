@@ -118,6 +118,7 @@ def sharer_client_connected(reader, writer):
     sharerid = protocol.get_unique_id()
     print("Sharerid: {}".format(sharerid))
     sharers[sharerid] = writer
+    writer.write(protocol.encode(sharerid, protocol.DATA, b"id" + sharerid.encode()))
 
     try:
         readbuffer = b""

@@ -15,6 +15,14 @@ def connect_to_server():
     sreader, swriter = yield from asyncio.open_connection("share.fkmzblt.net", 443, ssl=sslcontext)
 
     readbuffer = b""
+    data = yield from protocol.read_next_packet(sreader, readbuffer)
+    print(data)
+    readbuffer = data[3]
+    if data[1] == protocol.DATA:
+        data = data[2].decode()
+        if data.startswith("id"):
+            print("https://{}.fkmzblt.net".format(data[2:]))
+
     while True:
         data = yield from protocol.read_next_packet(sreader, readbuffer)
         if not data:
