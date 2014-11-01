@@ -22,7 +22,9 @@ def connect_to_server():
     if data[1] == protocol.DATA:
         data = data[2].decode()
         if data.startswith("id"):
-            print("https://{}.fkmzblt.net".format(data[2:]))
+            host = "{}.fkmzblt.net".format(data[2:])
+            print("https://"+host)
+            asyncio.async(run_local_server(host, args.filename))
 
     while True:
         data = yield from protocol.read_next_packet(sreader, readbuffer)
@@ -79,9 +81,10 @@ def handle_connection(connectionid, remote_writer):
 
 
 @asyncio.coroutine
-def run_local_server(file_to_share):
+def run_local_server(hostname, file_to_share):
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    sslcontext.load_cert_chain(certfile="server.crt", keyfile="server.key")
+    cert, pkey = create_tls_certificate(hostname)
+    sslcontext.load_cert_chain(certfile=cert, keyfile=pkey)
 
     #yield from asyncio.start_server(handle_downloader_connected, "127.0.0.1", 6666, ssl=sslcontext)
     loop = asyncio.get_event_loop()
@@ -132,14 +135,51 @@ class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
             print("keepalive")
 #            self.keep_alive()
 
+def create_tls_certificate(common_name):
+    import sys
+    from random import random
+    from OpenSSL import crypto
+
+    pkey = crypto.PKey()
+    pkey.generate_key(crypto.TYPE_RSA, 1024)
+
+    cert = crypto.X509()
+    cert.set_serial_number(int(random() * sys.maxsize))
+    cert.gmtime_adj_notBefore(0)
+    cert.gmtime_adj_notAfter(60 * 60 * 24 * 365)
+
+    subject = cert.get_subject()
+    subject.CN = common_name
+    subject.O = "fkmzblt share"
+
+    issuer = cert.get_issuer()
+    issuer.CN = "fkmzblt share"
+    issuer.O = "selfsigned"
+
+    cert.set_pubkey(pkey)
+    cert.sign(pkey, "sha1")
+
+    import tempfile, os
+    cert_handle, cert_file = tempfile.mkstemp()
+    pkey_handle, pkey_file = tempfile.mkstemp()
+
+    os.write(cert_handle, crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
+    os.write(pkey_handle, crypto.dump_privatekey(crypto.FILETYPE_PEM, pkey))
+    os.close(cert_handle)
+    os.close(pkey_handle)
+
+    return cert_file, pkey_file
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("filename", help="path to the file you wish to share")
 
     args = parser.parse_args()
 
+
     asyncio.async(connect_to_server())
-    asyncio.async(run_local_server(args.filename))
 
     loop = asyncio.get_event_loop()
     loop.run_forever()
