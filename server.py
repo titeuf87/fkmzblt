@@ -4,6 +4,7 @@ import ssl
 import tls
 import ssl
 import protocol
+import proxy
 
 
 def start_proxy_server():
@@ -21,19 +22,19 @@ def start_sharer_server():
 @asyncio.coroutine
 def proxy_client_connected(reader, writer):
     print("Client connected")
-    while True:
-        data = yield from reader.read(1024)
-        hostname = tls.get_sni(data)
 
-        if not hostname or "." not in hostname:
-            writer.close()
-            return
+    data = yield from reader.read(1024)
+    hostname = tls.get_sni(data)
 
-        subdomain = hostname[:hostname.find(".")]
-        if subdomain == "share":
-            yield from sharer_connected_to_proxy(data, reader, writer)
-        elif subdomain in sharers:
-            yield from downloader_connected_to_proxy(data, subdomain, reader, writer)
+    if not hostname or "." not in hostname:
+        writer.close()
+        return
+
+    subdomain = hostname[:hostname.find(".")]
+    if subdomain == "share":
+        yield from sharer_connected_to_proxy(data, reader, writer)
+    elif subdomain in sharers:
+        yield from downloader_connected_to_proxy(data, subdomain, reader, writer)
 
 @asyncio.coroutine
 def sharer_connected_to_proxy(original_data, local_reader, local_writer):
@@ -42,32 +43,20 @@ def sharer_connected_to_proxy(original_data, local_reader, local_writer):
 
     remote_writer.write(original_data)
 
-    local_read = asyncio.async(local_reader.read(1024))
-    remote_read = asyncio.async(remote_reader.read(1024))
+    local_connection = proxy.Connection(
+        lambda: local_reader.read(1024),
+        lambda data: local_writer.write(data)
+    )
 
-    while local_read or remote_read:
-        waits = [t for t in (local_read, remote_read) if t]
-        done, pending = yield from asyncio.wait(waits,
-            return_when=asyncio.FIRST_COMPLETED)
+    remote_connection = proxy.Connection(
+        lambda: remote_reader.read(1024),
+        lambda data: remote_writer.write(data)
+    )
 
-        for t in done:
-            data = t.result()
-
-            if t == local_read:
-                if data:
-                    local_read = asyncio.async(local_reader.read(1024))
-                    remote_writer.write(data)
-                else:
-                    local_read = None
-                    remote_writer.close()
-
-            elif t == remote_read:
-                if data:
-                    remote_read = asyncio.async(remote_reader.read(1024))
-                    local_writer.write(data)
-                else:
-                    remote_read = None
-                    local_writer.close()
+    p = proxy.Proxy(local_connection, remote_connection)
+    yield from p.run()
+    remote_writer.close()
+    local_writer.close()
 
 @asyncio.coroutine
 def downloader_connected_to_proxy(original_data, sharerid, local_reader, local_writer):
@@ -78,6 +67,22 @@ def downloader_connected_to_proxy(original_data, sharerid, local_reader, local_w
     remote_writer = sharers[sharerid]
     remote_writer.write(protocol.encode(downloaderid, protocol.CONNECTED))
     remote_writer.write(protocol.encode(downloaderid, protocol.PACKET, original_data))
+
+    local_connection = proxy.Connection(
+        lambda: local_reader.read(1024),
+        lambda data: local_writer.write(data)
+    )
+
+    remote_connection = proxy.Connection(
+        lambda: q.get(),
+        lambda data: remote_writer.write(protocol.encode(downloaderid, protocol.PACKET, data))
+    )
+
+    p = proxy.Proxy(local_connection, remote_connection)
+    yield from p.run()
+    local_writer.close()
+    print("all done")
+    return
 
     local_read = asyncio.async(local_reader.read(1024))
     remote_read = asyncio.async(q.get())

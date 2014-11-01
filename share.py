@@ -5,6 +5,7 @@ import aiohttp.server
 import argparse
 
 import protocol
+import proxy
 
 downloaders = {}
 
@@ -39,6 +40,7 @@ def connect_to_server():
         elif data[1] == protocol.PACKET:
             yield from downloaders[data[0]].put(data[2])
 
+
 @asyncio.coroutine
 def handle_connection(connectionid, remote_writer):
     q = downloaders[connectionid]
@@ -46,39 +48,19 @@ def handle_connection(connectionid, remote_writer):
     local_reader, local_writer = yield from asyncio.open_connection("127.0.0.1", 6666)
     print("mew!")
 
-    local_read = asyncio.async(local_reader.read(1024))
-    remote_read = asyncio.async(q.get())
+    local_connection = proxy.Connection(
+        lambda: local_reader.read(1024),
+        lambda data: local_writer.write(data)
+    )
 
-    while local_read or remote_read:
-        waits = [t for t in (local_read, remote_read) if t]
-        done, pending = yield from asyncio.wait(waits,
-            return_when=asyncio.FIRST_COMPLETED)
+    remote_connection = proxy.Connection(
+        lambda: q.get(),
+        lambda data: remote_writer.write(protocol.encode(connectionid, protocol.PACKET, data))
+    )
 
-        for t in done:
-            data = t.result()
-
-            if t == local_read:
-                if data:
-                    local_read = asyncio.async(local_reader.read(1024))
-                    remote_writer.write(protocol.encode(connectionid, protocol.PACKET, data))
-                else:
-                    local_read = None
-                    remote_read.cancel()
-                    remote_read = None
-
-                    remote_writer.write(protocol.encode(connectionid, protocol.DISCONNECTED))
-                    print("all done!")
-
-            elif t == remote_read:
-                if data:
-                    local_writer.write(data)
-                    remote_read = asyncio.async(q.get())
-                else:
-                    remote_read = None
-                    local_writer.close()
-
-
-
+    p = proxy.Proxy(local_connection, remote_connection)
+    yield from p.run()
+    remote_writer.write(protocol.encode(connectionid, protocol.DISCONNECTED))
 
 @asyncio.coroutine
 def run_local_server(hostname, file_to_share):
