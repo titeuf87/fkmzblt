@@ -24,8 +24,9 @@ def connect_to_server():
         data = data[2].decode()
         if data.startswith("id"):
             host = "{}.fkmzblt.net".format(data[2:])
-            print("https://"+host)
-            asyncio.async(run_local_server(host, args.filename))
+            fileid = protocol.get_unique_id()
+            print("https://{}/{}".format(host, fileid))
+            asyncio.async(run_local_server(host, args.filename, fileid))
 
     while True:
         data = yield from protocol.read_next_packet(sreader, readbuffer)
@@ -63,14 +64,14 @@ def handle_connection(connectionid, remote_writer):
     remote_writer.write(protocol.encode(connectionid, protocol.DISCONNECTED))
 
 @asyncio.coroutine
-def run_local_server(hostname, file_to_share):
+def run_local_server(hostname, file_to_share, fileid):
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
     cert, pkey = create_tls_certificate(hostname)
     sslcontext.load_cert_chain(certfile=cert, keyfile=pkey)
 
     #yield from asyncio.start_server(handle_downloader_connected, "127.0.0.1", 6666, ssl=sslcontext)
     loop = asyncio.get_event_loop()
-    yield from loop.create_server(lambda: HttpRequestHandler(file_to_share), "127.0.0.1", 6666, ssl=sslcontext)
+    yield from loop.create_server(lambda: HttpRequestHandler(file_to_share, fileid), "127.0.0.1", 6666, ssl=sslcontext)
 
 @asyncio.coroutine
 def handle_downloader_connected(reader, writer):
@@ -83,13 +84,18 @@ def handle_downloader_connected(reader, writer):
 
 class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
 
-    def __init__(self, file_to_share, **kwargs):
+    def __init__(self, file_to_share, fileid, **kwargs):
         super().__init__(**kwargs)
         self.file_to_share = file_to_share
+        self.fileid = fileid
 
     @asyncio.coroutine
     def handle_request(self, message, payload):
-        print(message, payload)
+        if message.path != "/" + self.fileid:
+            response = aiohttp.Response(self.writer, 404, http_version=message.version)
+            response.send_headers()
+            yield from response.write_eof()
+            return
 
         response = aiohttp.Response(self.writer, 200, http_version=message.version)
         response.add_header('Transfer-Encoding', 'chunked')
