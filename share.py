@@ -11,8 +11,8 @@ downloaders = {}
 
 @asyncio.coroutine
 def connect_to_server():
-    sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    sslcontext.verify_mode = ssl.CERT_NONE
+    sslcontext = ssl.create_default_context()
+    sslcontext.load_verify_locations("server.crt")
 
     sreader, swriter = yield from asyncio.open_connection("share.fkmzblt.net", 443, ssl=sslcontext)
 
