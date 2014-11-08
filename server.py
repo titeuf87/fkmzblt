@@ -15,7 +15,8 @@ def start_proxy_server():
 def start_sharer_server():
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
     sslcontext.load_cert_chain(certfile="server.crt", keyfile="server.key")
-    sslcontext.verify_mode = ssl.CERT_NONE
+    sslcontext.load_verify_locations("server.crt")
+    sslcontext.verify_mode = ssl.CERT_OPTIONAL
     coro = asyncio.start_server(sharer_client_connected, '127.0.0.1', 4446,
         ssl=sslcontext)
     asyncio.async(coro)
@@ -121,7 +122,15 @@ downloaders = {}
 
 @asyncio.coroutine
 def sharer_client_connected(reader, writer):
-    sharerid = protocol.get_unique_id()
+    cert = writer.get_extra_info("socket").getpeercert()
+    if cert:
+        print(cert)
+        for sub in cert.get("subject", ()):
+            for key, value in sub:
+                if key == "commonName":
+                    sharerid = value.replace(".fkmzblt.net", "")
+    else:
+        sharerid = protocol.get_unique_id()
     print("Sharerid: {}".format(sharerid))
     sharers[sharerid] = writer
     writer.write(protocol.encode(sharerid, protocol.DATA, b"id" + sharerid.encode()))

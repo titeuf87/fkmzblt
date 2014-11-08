@@ -3,6 +3,7 @@ import ssl
 import aiohttp
 import aiohttp.server
 import argparse
+import os
 
 import protocol
 import proxy
@@ -13,6 +14,12 @@ downloaders = {}
 def connect_to_server():
     sslcontext = ssl.create_default_context()
     sslcontext.load_verify_locations("server.crt")
+
+    create_new_certificate = True
+
+    if os.path.isfile("certificate") and os.path.isfile("privatekey"):
+        sslcontext.load_cert_chain(certfile="certificate", keyfile="privatekey")
+        create_new_certificate = False
 
     sreader, swriter = yield from asyncio.open_connection("share.fkmzblt.net", 443, ssl=sslcontext)
 
@@ -26,21 +33,21 @@ def connect_to_server():
             host = "{}.fkmzblt.net".format(data[2:])
             fileid = protocol.get_unique_id()
             print("https://{}/{}".format(host, fileid))
-            print("Making signing request")
-            req = create_certificate_signing_request(host)
 
-            swriter.write(protocol.encode(data[2:], protocol.DATA, b"cert" + req))
+            if create_new_certificate:
+                print("Making signing request")
+                req = create_certificate_signing_request(host)
+                swriter.write(protocol.encode(data[2:], protocol.DATA, b"cert" + req))
 
-
-            #asyncio.async(run_local_server(host, args.filename, fileid))
-    data = yield from protocol.read_next_packet(sreader, readbuffer)
-    if data[1] == protocol.DATA:
-        f = open("certificate", "wb")
-        cert = data[2][4:]
-        f.write(cert)
-        cert = open("server.crt", "rb").read()
-        f.write(cert)
-        f.close()
+    if create_new_certificate:
+        data = yield from protocol.read_next_packet(sreader, readbuffer)
+        if data[1] == protocol.DATA:
+            f = open("certificate", "wb")
+            cert = data[2][4:]
+            f.write(cert)
+            cert = open("server.crt", "rb").read()
+            f.write(cert)
+            f.close()
 
     asyncio.async(run_local_server(host, args.filename, fileid))
 
