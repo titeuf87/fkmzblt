@@ -1,5 +1,6 @@
 import asyncio
 import ssl
+from OpenSSL import crypto
 
 import tls
 import ssl
@@ -139,9 +140,33 @@ def sharer_client_connected(reader, writer):
             elif packet[1] == protocol.DISCONNECTED:
                 print("downloader disconnected")
                 yield from downloaders[connectionid].put(None)
+            elif packet[1] == protocol.DATA:
+                print("data")
+                yield from sharer_handle_data(sharerid, reader, writer, packet[2])
     finally:
         del sharers[sharerid]
 
+@asyncio.coroutine
+def sharer_handle_data(sharerid, reader, writer, data):
+    if data.startswith(b"cert"):
+        certificate = data[4:]
+
+        ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, open("server.crt", "rb").read())
+        ca_key = crypto.load_privatekey(crypto.FILETYPE_PEM, open("server.key", "rb").read())
+
+        req = crypto.load_certificate_request(crypto.FILETYPE_PEM, certificate)
+
+        cert = crypto.X509()
+        cert.set_subject(req.get_subject())
+        cert.set_serial_number(1)
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(24*60*60)
+        cert.set_issuer(ca_cert.get_subject())
+        cert.set_pubkey(req.get_pubkey())
+        cert.sign(ca_key, "sha1")
+
+        signed_cert = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
+        writer.write(protocol.encode(sharerid, protocol.DATA, b"cert" + signed_cert))
 
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()

@@ -26,7 +26,23 @@ def connect_to_server():
             host = "{}.fkmzblt.net".format(data[2:])
             fileid = protocol.get_unique_id()
             print("https://{}/{}".format(host, fileid))
-            asyncio.async(run_local_server(host, args.filename, fileid))
+            print("Making signing request")
+            req = create_certificate_signing_request(host)
+
+            swriter.write(protocol.encode(data[2:], protocol.DATA, b"cert" + req))
+
+
+            #asyncio.async(run_local_server(host, args.filename, fileid))
+    data = yield from protocol.read_next_packet(sreader, readbuffer)
+    if data[1] == protocol.DATA:
+        f = open("certificate", "wb")
+        cert = data[2][4:]
+        f.write(cert)
+        cert = open("server.crt", "rb").read()
+        f.write(cert)
+        f.close()
+
+    asyncio.async(run_local_server(host, args.filename, fileid))
 
     while True:
         data = yield from protocol.read_next_packet(sreader, readbuffer)
@@ -66,7 +82,9 @@ def handle_connection(connectionid, remote_writer):
 @asyncio.coroutine
 def run_local_server(hostname, file_to_share, fileid):
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    cert, pkey = create_tls_certificate(hostname)
+#    cert, pkey = create_tls_certificate(hostname)
+    cert = "certificate"
+    pkey = "privatekey"
     sslcontext.load_cert_chain(certfile=cert, keyfile=pkey)
 
     #yield from asyncio.start_server(handle_downloader_connected, "127.0.0.1", 6666, ssl=sslcontext)
@@ -158,7 +176,27 @@ def create_tls_certificate(common_name):
 
     return cert_file, pkey_file
 
+def create_certificate_signing_request(common_name):
+    import sys
+    from OpenSSL import crypto
 
+    key = crypto.PKey()
+    key.generate_key(crypto.TYPE_RSA, 2048)
+
+    req = crypto.X509Req()
+    req.get_subject().CN = common_name
+    req.set_pubkey(key)
+    req.sign(key, "sha1")
+
+    f = open("privatekey", "wb")
+    f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
+    f.close()
+
+    f = open("request", "wb")
+    f.write(crypto.dump_certificate_request(crypto.FILETYPE_PEM, req))
+    f.close()
+
+    return crypto.dump_certificate_request(crypto.FILETYPE_PEM, req)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
