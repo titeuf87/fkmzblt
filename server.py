@@ -1,12 +1,13 @@
 import asyncio
 import ssl
+import random
+import sys
 from OpenSSL import crypto
 
 import tls
 import ssl
 import protocol
 import proxy
-
 
 def start_proxy_server():
     coro = asyncio.start_server(proxy_client_connected, '0.0.0.0', 443)
@@ -167,7 +168,7 @@ def sharer_handle_data(sharerid, reader, writer, data):
 
         cert = crypto.X509()
         cert.set_subject(req.get_subject())
-        cert.set_serial_number(1)
+        cert.set_serial_number(int(random.random() * sys.maxsize))
         cert.gmtime_adj_notBefore(0)
         cert.gmtime_adj_notAfter(24*60*60)
         cert.set_issuer(ca_cert.get_subject())
