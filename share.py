@@ -4,6 +4,9 @@ import aiohttp
 import aiohttp.server
 import argparse
 import os
+import logging
+
+import sys
 
 import protocol
 import proxy
@@ -18,30 +21,32 @@ def connect_to_server():
     create_new_certificate = True
 
     if os.path.isfile("certificate") and os.path.isfile("privatekey"):
+        logging.info("Going to reuse existing certificate.")
         sslcontext.load_cert_chain(certfile="certificate", keyfile="privatekey")
         create_new_certificate = False
 
+    logging.info("Connecting...")
     sreader, swriter = yield from asyncio.open_connection("share.fkmzblt.net", 443, ssl=sslcontext)
 
     readbuffer = b""
     data = yield from protocol.read_next_packet(sreader, readbuffer)
-    print(data)
     readbuffer = data[3]
     if data[1] == protocol.DATA:
         data = data[2].decode()
         if data.startswith("id"):
             host = "{}.fkmzblt.net".format(data[2:])
             fileid = protocol.get_unique_id()
-            print("https://{}/{}".format(host, fileid))
+            logging.info("File shared at: https://{}/{}".format(host, fileid))
 
             if create_new_certificate:
-                print("Making signing request")
+                logging.info("Making a new certificate.")
                 req = create_certificate_signing_request(host)
                 swriter.write(protocol.encode(data[2:], protocol.DATA, b"cert" + req))
 
     if create_new_certificate:
         data = yield from protocol.read_next_packet(sreader, readbuffer)
         if data[1] == protocol.DATA:
+            logging.info("Server signed our new certificate.")
             f = open("certificate", "wb")
             cert = data[2][4:]
             f.write(cert)
@@ -58,7 +63,6 @@ def connect_to_server():
         readbuffer = data[3]
 
         if data[1] == protocol.CONNECTED:
-            print("connected")
             downloaders[data[0]] = asyncio.Queue()
             asyncio.async(handle_connection(data[0], swriter))
         elif data[1] == protocol.PACKET:
@@ -67,10 +71,9 @@ def connect_to_server():
 
 @asyncio.coroutine
 def handle_connection(connectionid, remote_writer):
+    logging.info("Downloader ({}) connected.".format(connectionid))
     q = downloaders[connectionid]
-    print("mew?")
     local_reader, local_writer = yield from asyncio.open_connection("127.0.0.1", 6666)
-    print("mew!")
 
     local_connection = proxy.Connection(
         lambda: local_reader.read(1024),
@@ -85,27 +88,24 @@ def handle_connection(connectionid, remote_writer):
     p = proxy.Proxy(local_connection, remote_connection)
     yield from p.run()
     remote_writer.write(protocol.encode(connectionid, protocol.DISCONNECTED))
+    logging.info("Downloader ({}) disconnected.".format(connectionid))
 
 @asyncio.coroutine
 def run_local_server(hostname, file_to_share, fileid):
     sslcontext = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-#    cert, pkey = create_tls_certificate(hostname)
     cert = "certificate"
     pkey = "privatekey"
     sslcontext.load_cert_chain(certfile=cert, keyfile=pkey)
 
-    #yield from asyncio.start_server(handle_downloader_connected, "127.0.0.1", 6666, ssl=sslcontext)
     loop = asyncio.get_event_loop()
     yield from loop.create_server(lambda: HttpRequestHandler(file_to_share, fileid), "127.0.0.1", 6666, ssl=sslcontext)
 
 @asyncio.coroutine
 def handle_downloader_connected(reader, writer):
-    print("meow?")
     try:
         data = yield from reader.read(1024)
     except ssl.SSLError:
         return
-    print(data)
 
 class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
 
@@ -144,49 +144,10 @@ class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
                 yield
 
         yield from response.write_eof()
-        if response.keep_alive():
-            print("keepalive")
-#            self.keep_alive()
 
-def create_tls_certificate(common_name):
-    import sys
-    from random import random
-    from OpenSSL import crypto
-
-    pkey = crypto.PKey()
-    pkey.generate_key(crypto.TYPE_RSA, 1024)
-
-    cert = crypto.X509()
-    cert.set_serial_number(int(random() * sys.maxsize))
-    cert.gmtime_adj_notBefore(0)
-    cert.gmtime_adj_notAfter(60 * 60 * 24 * 365)
-
-    subject = cert.get_subject()
-    subject.CN = common_name
-    subject.O = "fkmzblt share"
-
-    issuer = cert.get_issuer()
-    issuer.CN = "fkmzblt share"
-    issuer.O = "selfsigned"
-
-    cert.set_pubkey(pkey)
-    cert.sign(pkey, "sha1")
-
-    import tempfile, os
-    cert_handle, cert_file = tempfile.mkstemp()
-    pkey_handle, pkey_file = tempfile.mkstemp()
-
-    os.write(cert_handle, crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
-    os.write(pkey_handle, crypto.dump_privatekey(crypto.FILETYPE_PEM, pkey))
-    os.close(cert_handle)
-    os.close(pkey_handle)
-
-    return cert_file, pkey_file
 
 def create_certificate_signing_request(common_name):
-    import sys
     from OpenSSL import crypto
-
     key = crypto.PKey()
     key.generate_key(crypto.TYPE_RSA, 2048)
 
@@ -206,6 +167,10 @@ def create_certificate_signing_request(common_name):
     return crypto.dump_certificate_request(crypto.FILETYPE_PEM, req)
 
 if __name__ == "__main__":
+    FORMAT = '%(asctime)s [%(levelname)s] %(message)s'
+    logging.basicConfig(format=FORMAT)
+    logging.getLogger().setLevel(logging.INFO)
+
     parser = argparse.ArgumentParser()
     parser.add_argument("filename", help="path to the file you wish to share")
 
