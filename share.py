@@ -5,6 +5,7 @@ import aiohttp.server
 import argparse
 import os
 import logging
+import mimetypes
 
 import sys
 
@@ -138,7 +139,13 @@ class HttpRequestHandler(aiohttp.server.ServerHttpProtocol):
             response.add_header('Content-Encoding', 'gzip')
             response.add_compression_filter('gzip')
         response.add_chunking_filter(1025)
-        response.add_header('Content-type', 'image/png')
+        #response.add_header('Content-type', 'image/png')
+        mtype = mimetypes.guess_type(self.file_to_share)[0]
+        if not mtype:
+            mtype = "application/octet-stream"
+        response.add_header('Content-type', mtype)
+        fname = os.path.basename(self.file_to_share)
+        response.add_header("content-disposition", "filename={}".format(fname))
         response.send_headers()
 
         with open(self.file_to_share, "rb") as fp:
