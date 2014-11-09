@@ -84,6 +84,7 @@ def downloader_connected_to_proxy(original_data, sharerid, local_reader, local_w
     p = proxy.Proxy(local_connection, remote_connection)
     yield from p.run()
     local_writer.close()
+    remote_writer.write(protocol.encode(downloaderid, protocol.DISCONNECTED))
     print("all done")
 
     del downloaders[downloaderid]
@@ -114,6 +115,11 @@ def sharer_client_connected(reader, writer):
                 return
             readbuffer = packet[3]
             connectionid = packet[0]
+
+            if not connectionid in downloaders:
+                #This happens when a downloader disconnected from us but the
+                #uploader still sent us packets.
+                continue
 
             if packet[1] == protocol.PACKET:
                 yield from downloaders[connectionid].put(packet[2])

@@ -63,16 +63,20 @@ def connect_to_server():
         readbuffer = data[3]
 
         if data[1] == protocol.CONNECTED:
-            downloaders[data[0]] = asyncio.Queue()
-            asyncio.async(handle_connection(data[0], swriter))
+            task = asyncio.async(handle_connection(data[0], swriter))
+            downloaders[data[0]] = (asyncio.Queue(), task)
         elif data[1] == protocol.PACKET:
-            yield from downloaders[data[0]].put(data[2])
+            yield from downloaders[data[0]][0].put(data[2])
+        elif data[1] == protocol.DISCONNECTED:
+            logging.info("Downloader ({}) disconnected.".format(data[0]))
+            downloaders[data[0]][1].cancel()
+            del downloaders[data[0]]
 
 
 @asyncio.coroutine
 def handle_connection(connectionid, remote_writer):
     logging.info("Downloader ({}) connected.".format(connectionid))
-    q = downloaders[connectionid]
+    q = downloaders[connectionid][0]
     local_reader, local_writer = yield from asyncio.open_connection("127.0.0.1", 6666)
 
     local_connection = proxy.Connection(
@@ -84,6 +88,7 @@ def handle_connection(connectionid, remote_writer):
         lambda: q.get(),
         lambda data: remote_writer.write(protocol.encode(connectionid, protocol.PACKET, data))
     )
+
 
     p = proxy.Proxy(local_connection, remote_connection)
     yield from p.run()

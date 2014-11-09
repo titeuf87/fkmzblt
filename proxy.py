@@ -54,7 +54,10 @@ class Proxy():
                 return_when=asyncio.FIRST_COMPLETED)
 
             for task in done:
-                data = task.result()
+                try:
+                    data = task.result()
+                except ConnectionResetError:
+                    data = None
 
                 if task == read_a:
                     if data:
