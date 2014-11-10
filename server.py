@@ -116,7 +116,7 @@ def sharer_client_connected(reader, writer):
             readbuffer = packet[3]
             connectionid = packet[0]
 
-            if not connectionid in downloaders:
+            if not connectionid in downloaders and not connectionid in sharers:
                 #This happens when a downloader disconnected from us but the
                 #uploader still sent us packets.
                 continue
